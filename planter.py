@@ -6,67 +6,46 @@ import os
 import signal
 import time
 from threading import Thread
-
-import board
-import busio
-import RPi.GPIO as GPIO
+from modules import actions, reader
 import auth
-from adafruit_seesaw.seesaw import Seesaw
 from fastapi import Depends, FastAPI, Request
-from prometheus_client import Gauge, Summary, start_http_server
-
-
-
-REQUEST_TIME = Summary('request_processing_seconds', 'Time spent processing request')
-TEMP_SENSOR = Gauge('temp_sensor', 'temperature sensed')
-MOISTURE_SENSOR = Gauge('moisture_sensor', 'moisture sensed')
+from prometheus_client import start_http_server
+from fastapi.security import HTTPBasic
 
 
 app = FastAPI()
+security = HTTPBasic()
 
 
-
-@REQUEST_TIME.time()
-def get_sensor_reading():
-    """Read Sensor Info"""
-    # i2c_bus = board.I2C()
-    # GPIO.setmode(GPIO.BCM)
-    i2c_bus = busio.I2C(board.D3, board.D2)
-
-    ss = Seesaw(i2c_bus, addr=0x36)
-    try:
-        while True:
-            # read moisture level through capacitive touch pad
-            touch = ss.moisture_read()
-
-            # read temperature from the temperature sensor
-            temp = ss.get_temp()
-            print("temp: " + str(temp) + "  moisture: " + str(touch))
-
-            #Export Metrics to prometheus
-            MOISTURE_SENSOR.set(str(temp))
-            TEMP_SENSOR.set(str(touch))
-            time.sleep(1)
-        # GPIO.output(37, False)
-    except KeyboardInterrupt:  # If user pressed ctrl+c while loop was still running, then this will be useful
-        pass
-
-def turn_on_pump():
-    """ This function will turn on water pump for a second"""
-    GPIO.setup(16, GPIO.OUT)
-    GPIO.output(16, GPIO.HIGH)
-    time.sleep(1)
-    GPIO.output(16, GPIO.LOW)
 
 def loop_over_sensor_reading():
-    thread = Thread(target=get_sensor_reading)
+    thread = Thread(target=reader.get_sensor_reading)
     thread.start()
 
+@app.get("/")
+async def root():
+    actions.turn_on_pump()
+    return {"message": "Pump run for 3 seconds"}
+
+
+## Request is not currently being used but it will be
 @app.post("/pump", status_code=http.HTTPStatus.ACCEPTED)
 async def pump(request: Request=Depends(auth.get_auth)):
-    turn_on_pump()
+    print("turn on pump")
+    actions.turn_on_pump()
     return{}
 
+@app.post("/light_on", status_code=http.HTTPStatus.ACCEPTED)
+async def pump(request: Request=Depends(auth.get_auth)):
+    print("turn on light")
+    actions.turn_on_light()
+    return{}
+
+@app.post("/light_off", status_code=http.HTTPStatus.ACCEPTED)
+async def pump(request: Request=Depends(auth.get_auth)):
+    print("turn off light")
+    actions.turn_off_light()
+    return{}
 
 
 @app.on_event("startup")
@@ -81,9 +60,8 @@ async def startup_event():
 def shutdown_event():
     print("shutting down in 5 seconds...")
     time.sleep(5)
+    ##GPIO.cleanup()
     os.kill(os.getpid(), signal.SIGUSR1)
-
-
 
 
 if __name__ == "__main__":
